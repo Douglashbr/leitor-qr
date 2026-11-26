@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leitor de QR em Imagens</title>
+<meta name="description" content="Leia QR codes de fotos e prints direto no celular. Reconhece PIX, Wi-Fi, links e contatos.">
+<meta name="theme-color" content="#1f3cff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Leitor QR">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE: prático, direto, confiável — uma ferramenta de bolso.
+   IDEA: um visor de leitura: cantoneiras de câmera em volta da imagem.
+   PICTURE: a própria área de imagem, com caixas numeradas sobre cada QR achado.
+   COLOUR and TYPE: branco + tinta quase preta, azul cobalto de destaque, coral só para alertas; Sora nos títulos, Inter no texto.
+   LAYOUT: título curto, visor grande, resultados em cartões numerados, histórico no fim. */
+:root{color-scheme:light dark;
+--bg:light-dark(#ffffff,#0d0f1a);--ink:light-dark(#14151c,#eef0fa);--soft:light-dark(#5b5f70,#a5aac0);
+--line:light-dark(#e3e5ee,#262a3d);--card:light-dark(#f6f7fb,#151829);--acc:light-dark(#1f3cff,#7f93ff);
+--acc-ink:light-dark(#ffffff,#0d0f1a);--warn:light-dark(#c4361f,#ff8a74);--warn-bg:light-dark(#fff0ec,#2b1612);
+--ok:light-dark(#0b7a4b,#5fd39e)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:860px;margin:0 auto;padding:clamp(20px,4vw,48px) max(4vw,16px) 64px}
+h1{font:700 clamp(28px,5vw,40px)/1.05 Sora,Inter,sans-serif;margin:0 0 6px;text-wrap:balance}
+h2{font:600 20px/1.2 Sora,Inter,sans-serif;margin:36px 0 12px}
+.lead{color:var(--soft);margin:0 0 20px;max-width:60ch}
+.viewer{position:relative;border-radius:18px;background:var(--card);min-height:300px;display:grid;place-items:center;padding:28px;outline:2px dashed transparent;transition:outline-color .2s}
+.viewer.drag{outline-color:var(--acc)}
+.corner{position:absolute;width:34px;height:34px;border:4px solid var(--acc);pointer-events:none}
+.c1{top:12px;left:12px;border-right:0;border-bottom:0;border-radius:10px 0 0 0}
+.c2{top:12px;right:12px;border-left:0;border-bottom:0;border-radius:0 10px 0 0}
+.c3{bottom:12px;left:12px;border-right:0;border-top:0;border-radius:0 0 0 10px}
+.c4{bottom:12px;right:12px;border-left:0;border-top:0;border-radius:0 0 10px 0}
+.empty{text-align:center;max-width:34ch}
+.empty p{margin:8px 0 16px;color:var(--soft)}
+.stage{position:relative;display:inline-block;max-width:100%}
+.stage img{display:block;max-width:100%;max-height:60vh;border-radius:8px}
+.stage svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.btn{appearance:none;border:0;border-radius:12px;min-height:44px;padding:10px 18px;font:600 16px Inter,sans-serif;cursor:pointer;background:var(--acc);color:var(--acc-ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn.small{min-height:40px;padding:8px 14px;font-size:15px}
+.btn:focus-visible,a:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.tools{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;align-items:center}
+.hint{color:var(--soft);font-size:14px}
+.status{margin:14px 0 0;font-weight:500;min-height:1.5em}
+.status.err{color:var(--warn)}
+.scan{position:absolute;left:8%;right:8%;height:3px;background:var(--acc);border-radius:3px;top:15%;box-shadow:0 0 18px var(--acc);animation:sc 1.4s ease-in-out infinite alternate;display:none}
+.busy .scan{display:block}
+@keyframes sc{to{top:85%}}
+@media(prefers-reduced-motion:reduce){.scan{animation:none;top:50%}}
+.results{display:grid;gap:14px}
+.res{border:1.5px solid var(--line);border-radius:16px;padding:16px 18px;background:var(--bg)}
+.res header{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--acc);color:var(--acc-ink);display:grid;place-items:center;font:700 15px Sora,sans-serif}
+.kind{font:600 17px Sora,Inter,sans-serif}
+.raw{font:14px/1.45 ui-monospace,Menlo,monospace;background:var(--card);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere;white-space:pre-wrap;margin:8px 0;max-height:160px;overflow:auto}
+dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:8px 0}
+dt{color:var(--soft)}dd{margin:0;overflow-wrap:anywhere;font-weight:500}
+.alert{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin:8px 0;font-size:15px}
+.alert b{display:block}
+.good{color:var(--ok);font-size:15px;margin:6px 0}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
+.hist{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.hist li{display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:8px 0}
+.hist .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.hist small{color:var(--soft);display:block;font-size:13px}
+.foot{margin-top:40px;color:var(--soft);font-size:13px}
+.install{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;background:var(--card);border-radius:14px;padding:12px 14px;margin:0 0 18px}
+.install p{margin:0;flex:1 1 220px;font-size:15px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Leitor de QR em imagens</h1>
+  <p class="lead">Escolha uma foto ou print, cole com Ctrl+V ou arraste para cá. A leitura acontece no seu aparelho: a imagem não é enviada a lugar nenhum.</p>
+
+  <div class="install" id="install" hidden><p id="installTxt">Instale o leitor na tela inicial para abrir como um app, mesmo sem internet.</p><button class="btn small" id="installBtn" type="button" hidden>Instalar app</button><button class="btn small ghost" id="installX" type="button">Agora não</button></div>
+
+  <section class="viewer" id="viewer" aria-label="Área da imagem">
+    <span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
+    <div class="scan"></div>
+    <div class="empty" id="empty">
+      <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><g fill="currentColor" opacity=".85"><rect x="6" y="6" width="22" height="22" rx="4"/><rect x="44" y="6" width="22" height="22" rx="4"/><rect x="6" y="44" width="22" height="22" rx="4"/><rect x="44" y="44" width="8" height="8"/><rect x="58" y="44" width="8" height="8"/><rect x="51" y="51" width="8" height="8"/><rect x="44" y="58" width="8" height="8"/><rect x="58" y="58" width="8" height="8"/></g><g fill="var(--card)"><rect x="11" y="11" width="12" height="12" rx="2"/><rect x="49" y="11" width="12" height="12" rx="2"/><rect x="11" y="49" width="12" height="12" rx="2"/></g></svg>
+      <p>Nenhuma imagem ainda.</p>
+      <button class="btn" id="pick" type="button">Escolher imagem</button>
+    </div>
+    <div class="stage" id="stage" hidden><img id="img" alt="Imagem enviada"><svg id="boxes" aria-hidden="true"></svg></div>
+  </section>
+  <input type="file" id="file" accept="image/*" multiple class="sr" tabindex="-1">
+  <div class="tools" id="tools" hidden>
+    <button class="btn small" id="pick2" type="button">Outra imagem</button>
+    <button class="btn small ghost" id="clear" type="button">Limpar</button>
+    <span class="hint">Dica: no computador, Ctrl+V cola um print direto.</span>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <div class="results" id="results"></div>
+
+  <h2>Histórico</h2>
+  <ul class="hist" id="hist"></ul>
+  <div class="tools"><button class="btn small ghost" id="clearHist" type="button">Apagar histórico</button></div>
+
+  <p class="foot">Versão 1.1 · No Android, você também pode compartilhar uma imagem da galeria direto para o app. · Tipos reconhecidos: link, PIX copia e cola, Wi‑Fi, contato, e‑mail, telefone, SMS, localização e texto. O alerta de link é uma checagem simples, não substitui o bom senso.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const viewer=$('viewer'),fileIn=$('file'),img=$('img'),boxes=$('boxes'),statusEl=$('status'),results=$('results');
+let lastFound=[];
+
+/* ---------- entrada ---------- */
+$('pick').onclick=$('pick2').onclick=()=>fileIn.click();
+fileIn.onchange=()=>{if(fileIn.files.length)handleFiles([...fileIn.files]);fileIn.value=''};
+$('clear').onclick=reset;
+document.addEventListener('paste',e=>{
+  const items=[...(e.clipboardData?.items||[])].filter(i=>i.type.startsWith('image/'));
+  if(items.length){e.preventDefault();handleFiles(items.map(i=>i.getAsFile()))}
+  else{const t=e.clipboardData?.getData('text');if(t&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName))setStatus('Cole uma imagem (print), não texto.',true)}
+});
+['dragenter','dragover'].forEach(ev=>viewer.addEventListener(ev,e=>{e.preventDefault();viewer.classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>viewer.addEventListener(ev,e=>{e.preventDefault();viewer.classList.remove('drag')}));
+viewer.addEventListener('drop',e=>{const f=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));if(f.length)handleFiles(f);else setStatus('Isso não parece uma imagem.',true)});
+
+function setStatus(t,err){statusEl.textContent=t;statusEl.className='status'+(err?' err':'')}
+function reset(){$('stage').hidden=true;$('empty').hidden=false;$('tools').hidden=true;results.innerHTML='';boxes.innerHTML='';setStatus('')}
+
+async function handleFiles(files){
+  // várias imagens: processa a primeira na tela e acumula resultados de todas
+  results.innerHTML='';let all=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    setStatus(files.length>1?`Lendo imagem ${i+1} de ${files.length}…`:'Procurando QR codes…');
+    viewer.classList.add('busy');
+    try{
+      const url=URL.createObjectURL(f);
+      const im=await loadImg(url);
+      const found=await decodeAll(im);
+      if(i===files.length-1){showImage(url,im,found)}
+      all=all.concat(found.map(x=>({...x,file:files.length>1?(f.name||`imagem ${i+1}`):''})));
+    }catch(err){setStatus('Não consegui abrir essa imagem.',true)}
+    viewer.classList.remove('busy');
+  }
+  render(all);
+}
+function loadImg(src){return new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=src})}
+
+/* ---------- decodificação ---------- */
+async function decodeAll(im){
+  const out=[];
+  // 1) API nativa do navegador, quando existe (acha vários de uma vez)
+  if('BarcodeDetector' in window){
+    try{
+      const fm=await BarcodeDetector.getSupportedFormats();
+      if(fm.includes('qr_code')){
+        const d=new BarcodeDetector({formats:['qr_code']});
+        const r=await d.detect(im);
+        r.forEach(c=>out.push({text:c.rawValue,pts:c.cornerPoints.map(p=>({x:p.x,y:p.y}))}));
+      }
+    }catch(e){}
+  }
+  if(out.length)return dedupe(out);
+  if(typeof jsQR!=='function')return out;
+  // 2) jsQR em algumas escalas; após achar um, cobre a área e procura de novo
+  for(const maxSide of [1400,2200,800]){
+    const sc=Math.min(1,maxSide/Math.max(im.naturalWidth,im.naturalHeight));
+    const w=Math.round(im.naturalWidth*sc),h=Math.round(im.naturalHeight*sc);
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    const cx=cv.getContext('2d',{willReadFrequently:true});
+    cx.fillStyle='#fff';cx.fillRect(0,0,w,h);cx.drawImage(im,0,0,w,h);
+    for(let k=0;k<8;k++){
+      const data=cx.getImageData(0,0,w,h);
+      const r=jsQR(data.data,w,h,{inversionAttempts:'attemptBoth'});
+      if(!r||!r.data&&!r.binaryData?.length)break;
+      const L=r.location,pts=[L.topLeftCorner,L.topRightCorner,L.bottomRightCorner,L.bottomLeftCorner].map(p=>({x:p.x/sc,y:p.y/sc}));
+      out.push({text:r.data||new TextDecoder().decode(new Uint8Array(r.binaryData)),pts});
+      // cobre o código encontrado (com margem) para achar o próximo
+      const xs=pts.map(p=>p.x*sc),ys=pts.map(p=>p.y*sc);
+      const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),m=(x1-x0)*0.12;
+      cx.fillStyle='#fff';cx.fillRect(x0-m,y0-m,x1-x0+2*m,y1-y0+2*m);
+    }
+    if(out.length)break;
+  }
+  return dedupe(out);
+}
+function dedupe(a){const seen=new Set();return a.filter(x=>{const k=x.text+'|'+Math.round(x.pts[0].x/20)+','+Math.round(x.pts[0].y/20);if(seen.has(k))return false;seen.add(k);return true})}
+
+function showImage(url,im,found){
+  $('empty').hidden=true;$('stage').hidden=false;$('tools').hidden=false;
+  img.src=url;
+  const W=im.naturalWidth,H=im.naturalHeight;
+  boxes.setAttribute('viewBox',`0 0 ${W} ${H}`);boxes.setAttribute('preserveAspectRatio','none');
+  const sw=Math.max(3,W/200),r=Math.max(14,W/40);
+  boxes.innerHTML=found.map((f,i)=>{
+    const p=f.pts.map(p=>`${p.x},${p.y}`).join(' ');const c=f.pts[0];
+    return `<polygon points="${p}" fill="rgba(31,60,255,.12)" stroke="var(--acc)" stroke-width="${sw}" stroke-linejoin="round"/>
+    <circle cx="${c.x}" cy="${c.y}" r="${r}" fill="var(--acc)"/><text x="${c.x}" y="${c.y}" fill="var(--acc-ink)" font-size="${r*1.15}" font-family="Sora,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="central">${i+1}</text>`}).join('');
+}
+
+/* ---------- interpretação ---------- */
+function crc16(s){let c=0xFFFF;for(let i=0;i<s.length;i++){c^=s.charCodeAt(i)<<8;for(let j=0;j<8;j++)c=c&0x8000?((c<<1)^0x1021)&0xFFFF:(c<<1)&0xFFFF}return c.toString(16).toUpperCase().padStart(4,'0')}
+function tlv(s){const o={};let i=0;while(i+4<=s.length){const id=s.slice(i,i+2),n=parseInt(s.slice(i+2,i+4),10);if(isNaN(n))break;o[id]=s.slice(i+4,i+4+n);i+=4+n}return o}
+function parsePix(t){
+  if(!/^000201/.test(t)||!/br\.gov\.bcb\.pix/i.test(t))return null;
+  const top=tlv(t);let acc=null;
+  for(let k=26;k<=51;k++){const v=top[String(k)];if(v&&/br\.gov\.bcb\.pix/i.test(v)){acc=tlv(v);break}}
+  const add=top['62']?tlv(top['62']):{};
+  const crcOk=t.length>8&&t.slice(-8,-4)==='6304'&&crc16(t.slice(0,-4))===t.slice(-4).toUpperCase();
+  return{chave:acc?.['01']||'',info:acc?.['02']||'',url:acc?.['25']||'',valor:top['54']||'',nome:top['59']||'',cidade:top['60']||'',txid:add['05']||'',crcOk};
+}
+function parseWifi(t){
+  if(!/^WIFI:/i.test(t))return null;const o={};
+  const body=t.slice(5);let key='',val='',inKey=true;
+  for(let i=0;i<body.length;i++){const ch=body[i];
+    if(ch==='\\'&&i+1<body.length){val+=body[++i];continue}
+    if(inKey&&ch===':'){inKey=false;continue}
+    if(ch===';'){if(key)o[key.toUpperCase()]=val;key='';val='';inKey=true;continue}
+    if(inKey)key+=ch;else val+=ch}
+  if(key)o[key.toUpperCase()]=val;
+  return{rede:o.S||'',senha:o.P||'',tipo:o.T||'sem senha',oculta:/true/i.test(o.H||'')};
+}
+function parseContact(t){
+  if(/^BEGIN:VCARD/i.test(t)){const g=k=>(t.match(new RegExp('^'+k+'[^:\\n]*:(.*)$','im'))||[])[1]?.trim()||'';
+    let n=g('FN');if(!n){n=g('N').split(';').filter(Boolean).reverse().join(' ')}
+    return{nome:n,telefone:g('TEL'),email:g('EMAIL'),empresa:g('ORG')}}
+  if(/^MECARD:/i.test(t)){const g=k=>(t.match(new RegExp('[:;]'+k+':([^;]*)','i'))||[])[1]||'';
+    return{nome:g('N').split(',').reverse().join(' ').trim(),telefone:g('TEL'),email:g('EMAIL'),empresa:g('ORG')}}
+  return null;
+}
+const SHORT=['bit.ly','tinyurl.com','t.co','goo.gl','is.gd','ow.ly','cutt.ly','rb.gy','buff.ly','shorturl.at','encurtador.com.br','tiny.cc','s.id','rebrand.ly','t.ly','l1nk.dev'];
+const ODD_TLD=['zip','mov','xyz','top','click','loan','work','gq','tk','ml','cf','ga','rest','country','support','live','icu','cyou','sbs'];
+function checkUrl(u){
+  const w=[];let url;try{url=new URL(u)}catch(e){return['Endereço mal formado.']}
+  const h=url.hostname.toLowerCase();
+  if(url.protocol==='http:')w.push('Usa http (sem cadeado), não https.');
+  if(SHORT.some(s=>h===s||h.endsWith('.'+s)))w.push('É um link encurtado: o destino real fica escondido.');
+  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(h)||h.includes(':'))w.push('Aponta para um número de IP em vez de um site com nome.');
+  if(h.split('.').some(p=>p.startsWith('xn--')))w.push('O nome do site usa caracteres especiais que podem imitar outro site.');
+  if(url.username||u.replace(/^https?:\/\//,'').split('/')[0].includes('@'))w.push('Tem um "@" no endereço, truque comum para disfarçar o destino.');
+  const tld=h.split('.').pop();if(ODD_TLD.includes(tld))w.push(`Termina em ".${tld}", extensão muito usada em golpes.`);
+  if(h.split('.').length>4)w.push('Tem muitos subdomínios, o que pode disfarçar o site real.');
+  const brands=['banco','itau','bradesco','caixa','santander','nubank','gov','receita','correios','pix','inter','mercadopago','paypal'];
+  const base=h.split('.').slice(-2).join('.');const sub=h.slice(0,-base.length);
+  if(brands.some(b=>sub.includes(b))&&!brands.some(b=>base.startsWith(b)))w.push('Cita um banco ou órgão no começo do endereço, mas o site real é outro: '+base+'.');
+  return w;
+}
+function classify(t){
+  const s=t.trim();
+  const pix=parsePix(s);if(pix)return{kind:'PIX copia e cola',pix};
+  const wifi=parseWifi(s);if(wifi)return{kind:'Rede Wi‑Fi',wifi};
+  const ct=parseContact(s);if(ct)return{kind:'Contato',ct};
+  if(/^https?:\/\//i.test(s))return{kind:'Link',url:s,warn:checkUrl(s)};
+  if(/^www\.[^\s]+\.[a-z]{2,}/i.test(s))return{kind:'Link',url:'https://'+s,warn:checkUrl('https://'+s)};
+  if(/^mailto:/i.test(s))return{kind:'E‑mail',mail:decodeURIComponent(s.slice(7).split('?')[0])};
+  if(/^tel:/i.test(s))return{kind:'Telefone',tel:s.slice(4)};
+  if(/^(sms|smsto):/i.test(s)){const p=s.split(':');return{kind:'SMS',tel:p[1]||'',msg:p.slice(2).join(':')}}
+  if(/^geo:/i.test(s)){const [la,lo]=s.slice(4).split(/[,?;]/);return{kind:'Localização',lat:la,lon:lo}}
+  return{kind:'Texto'};
+}
+const brl=v=>{const n=parseFloat(v);return isNaN(n)?v:n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})};
+const row=(k,v)=>v?`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`:'';
+
+function card(f,i){
+  const c=classify(f.text);let body='',acts=[];
+  if(c.pix){const p=c.pix;
+    body=`<dl>${row('Recebedor',p.nome)}${row('Cidade',p.cidade)}${row('Valor',p.valor?brl(p.valor):'Livre (você digita no app do banco)')}${row('Chave',p.chave)}${row('Mensagem',p.info)}${row('Identificador',p.txid&&p.txid!=='***'?p.txid:'')}${p.url?row('Cobrança dinâmica',p.url.split('/')[0]):''}</dl>`+
+    (p.crcOk?`<p class="good">Código íntegro (verificação do PIX conferida).</p>`:`<div class="alert"><b>Verificação do código falhou.</b>O código pode estar incompleto ou alterado. Não pague sem conferir.</div>`)+
+    `<p class="hint">Confira o nome do recebedor no app do banco antes de confirmar.</p>`;
+    acts.push(['Copiar código PIX',f.text]);
+  }else if(c.wifi){const w=c.wifi;
+    body=`<dl>${row('Rede',w.rede)}${row('Senha',w.senha||'(sem senha)')}${row('Segurança',w.tipo)}${w.oculta?row('Rede oculta','sim'):''}</dl>`;
+    if(w.senha)acts.push(['Copiar senha',w.senha]);acts.push(['Copiar nome da rede',w.rede]);
+  }else if(c.ct){const k=c.ct;body=`<dl>${row('Nome',k.nome)}${row('Telefone',k.telefone)}${row('E‑mail',k.email)}${row('Empresa',k.empresa)}</dl>`;
+    if(k.telefone)acts.push(['Copiar telefone',k.telefone]);if(k.email)acts.push(['Copiar e‑mail',k.email]);
+  }else if(c.url){
+    const host=(()=>{try{return new URL(c.url).hostname}catch(e){return''}})();
+    body=`<dl>${row('Site',host)}</dl><div class="raw">${esc(c.url)}</div>`+
+      (c.warn.length?`<div class="alert"><b>Atenção antes de abrir</b>${c.warn.map(esc).join('<br>')}</div>`:`<p class="good">Nenhum sinal óbvio de golpe no endereço.</p>`);
+    acts.push(['Copiar link',c.url]);
+  }else if(c.mail){body=`<dl>${row('Endereço',c.mail)}</dl>`;acts.push(['Copiar e‑mail',c.mail])}
+  else if(c.tel!==undefined){body=`<dl>${row('Número',c.tel)}${row('Mensagem',c.msg)}</dl>`;acts.push(['Copiar número',c.tel])}
+  else if(c.lat){body=`<dl>${row('Latitude',c.lat)}${row('Longitude',c.lon)}</dl>`;
+    acts.push(['Copiar coordenadas',`${c.lat},${c.lon}`])}
+  else body=`<div class="raw">${esc(f.text)}</div>`;
+  const showRaw=!(c.url||c.kind==='Texto');
+  const link=c.url?`<a class="btn small" href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${c.warn.length?'Abrir mesmo assim':'Abrir link'}</a>`:
+    c.lat?`<a class="btn small ghost" href="https://www.google.com/maps?q=${encodeURIComponent(c.lat+','+c.lon)}" target="_blank" rel="noopener noreferrer">Ver no mapa</a>`:'';
+  if(!acts.some(a=>a[1]===f.text))acts.push(['Copiar texto completo',f.text]);
+  return `<article class="res"><header><span class="num">${i+1}</span><span class="kind">${esc(c.kind)}</span>${f.file?`<span class="hint">· ${esc(f.file)}</span>`:''}</header>
+  ${body}${showRaw?`<details><summary class="hint">Ver conteúdo bruto</summary><div class="raw">${esc(f.text)}</div></details>`:''}
+  <div class="acts">${link}${acts.map((a,j)=>`<button class="btn small ${j||link?'ghost':''}" type="button" data-copy="${i}:${j}">${esc(a[0])}</button>`).join('')}</div></article>`;
+}
+function render(found){
+  lastFound=found;
+  if(!found.length){results.innerHTML='';setStatus('Nenhum QR code encontrado. Tente uma imagem mais nítida, recortada perto do código.',true);return}
+  setStatus(found.length===1?'1 QR code encontrado.':`${found.length} QR codes encontrados.`);
+  results.innerHTML=found.map(card).join('');
+  found.forEach(f=>addHist(f.text));
+}
+results.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-copy]');if(!b)return;
+  const [i,j]=b.dataset.copy.split(':').map(Number);
+  const val=copyValues(lastFound[i])[j];
+  const old=b.textContent;
+  try{await navigator.clipboard.writeText(val);b.textContent='Copiado ✓'}catch(err){b.textContent='Não deu para copiar'}
+  setTimeout(()=>b.textContent=old,1600);
+});
+function copyValues(f){
+  const c=classify(f.text),v=[];
+  if(c.pix)v.push(f.text);
+  else if(c.wifi){if(c.wifi.senha)v.push(c.wifi.senha);v.push(c.wifi.rede)}
+  else if(c.ct){if(c.ct.telefone)v.push(c.ct.telefone);if(c.ct.email)v.push(c.ct.email)}
+  else if(c.url)v.push(c.url);
+  else if(c.mail)v.push(c.mail);
+  else if(c.tel!==undefined)v.push(c.tel);
+  else if(c.lat)v.push(`${c.lat},${c.lon}`);
+  if(!v.includes(f.text))v.push(f.text);
+  return v;
+}
+
+/* ---------- histórico ---------- */
+const HK='qr-leitor-hist';
+function getHist(){try{return JSON.parse(localStorage.getItem(HK)||'[]')}catch(e){return[]}}
+function setHist(h){try{localStorage.setItem(HK,JSON.stringify(h))}catch(e){}}
+let memHist=getHist();
+function addHist(t){memHist=[{t,d:Date.now()},...memHist.filter(x=>x.t!==t)].slice(0,30);setHist(memHist);drawHist()}
+function drawHist(){
+  const ul=$('hist');
+  if(!memHist.length){ul.innerHTML='<li><span class="hint">As leituras aparecem aqui e ficam só neste aparelho.</span></li>';$('clearHist').hidden=true;return}
+  $('clearHist').hidden=false;
+  ul.innerHTML=memHist.map((h,i)=>`<li><span class="t">${esc(classify(h.t).kind)} · ${esc(h.t)}<small>${new Date(h.d).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</small></span><button class="btn small ghost" type="button" data-h="${i}">Ver</button></li>`).join('');
+}
+$('hist').addEventListener('click',e=>{const b=e.target.closest('[data-h]');if(!b)return;const h=memHist[+b.dataset.h];
+  lastFound=[{text:h.t,pts:[{x:0,y:0}]}];results.innerHTML=card(lastFound[0],0);setStatus('Mostrando item do histórico.');results.scrollIntoView({behavior:'smooth',block:'start'})});
+$('clearHist').onclick=()=>{memHist=[];setHist([]);drawHist()};
+drawHist();
+if(typeof jsQR!=='function'&&!('BarcodeDetector' in window))setStatus('O leitor não carregou. Verifique a conexão e recarregue a página.',true);
+
+/* ---------- PWA: instalação, offline e compartilhamento ---------- */
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+let dismissed=false;try{dismissed=localStorage.getItem('qr-install-x')==='1'}catch(e){}
+let deferred=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(!dismissed&&!standalone){$('install').hidden=false;$('installBtn').hidden=false}});
+$('installBtn').onclick=async()=>{if(!deferred)return;deferred.prompt();await deferred.userChoice.catch(()=>{});deferred=null;$('install').hidden=true};
+$('installX').onclick=()=>{$('install').hidden=true;try{localStorage.setItem('qr-install-x','1')}catch(e){}};
+window.addEventListener('appinstalled',()=>{$('install').hidden=true});
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+if(isIOS&&!standalone&&!dismissed){$('installTxt').textContent='Para instalar no iPhone: toque em Compartilhar (o quadrado com a seta) e depois em "Adicionar à Tela de Início".';$('install').hidden=false}
+// imagens recebidas pelo "Compartilhar" do Android
+const sp=new URLSearchParams(location.search);
+if(sp.has('shared')&&'caches' in window){(async()=>{
+  try{const c=await caches.open('qr-shared');const n=+sp.get('shared')||0;const files=[];
+    for(let i=0;i<n;i++){const r=await c.match('shared/'+i);if(r){const b=await r.blob();files.push(new File([b],'compartilhada-'+(i+1),{type:b.type||'image/png'}));await c.delete('shared/'+i)}}
+    history.replaceState(null,'',location.pathname);
+    if(files.length)handleFiles(files);else setStatus('Não recebi a imagem compartilhada. Tente de novo.',true);
+  }catch(e){setStatus('Não consegui abrir a imagem compartilhada.',true)}})()}
+}
+</script>
+</body>
+</html>
