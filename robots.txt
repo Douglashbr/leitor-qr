@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://leitor-qr.netlify.app/sitemap.xml
+Sitemap: https://qr.dmd.dev.br/sitemap.xml
