@@ -111,7 +111,8 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <ul class="hist" id="hist"></ul>
   <div class="tools"><button class="btn small ghost" id="clearHist" type="button">Apagar histórico</button></div>
 
-  <p class="foot">Versão 1.1 · No Android, você também pode compartilhar uma imagem da galeria direto para o app. · Tipos reconhecidos: link, PIX copia e cola, Wi‑Fi, contato, e‑mail, telefone, SMS, localização e texto. O alerta de link é uma checagem simples, não substitui o bom senso.</p>
+  <div class="tools"><button class="btn small ghost" id="howInstall" type="button">Como instalar no celular</button></div>
+  <p class="foot">Versão 1.2 · No Android, você também pode compartilhar uma imagem da galeria direto para o app. · Tipos reconhecidos: link, PIX copia e cola, Wi‑Fi, contato, e‑mail, telefone, SMS, localização e texto. O alerta de link é uma checagem simples, não substitui o bom senso.</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
@@ -352,14 +353,39 @@ if(typeof jsQR!=='function'&&!('BarcodeDetector' in window))setStatus('O leitor 
 /* ---------- PWA: instalação, offline e compartilhamento ---------- */
 if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
 const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
-let dismissed=false;try{dismissed=localStorage.getItem('qr-install-x')==='1'}catch(e){}
+let dismissed=false;try{dismissed=Date.now()<+(localStorage.getItem('qr-install-until')||0)}catch(e){}
 let deferred=null;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(!dismissed&&!standalone){$('install').hidden=false;$('installBtn').hidden=false}});
-$('installBtn').onclick=async()=>{if(!deferred)return;deferred.prompt();await deferred.userChoice.catch(()=>{});deferred=null;$('install').hidden=true};
-$('installX').onclick=()=>{$('install').hidden=true;try{localStorage.setItem('qr-install-x','1')}catch(e){}};
-window.addEventListener('appinstalled',()=>{$('install').hidden=true});
-const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-if(isIOS&&!standalone&&!dismissed){$('installTxt').textContent='Para instalar no iPhone: toque em Compartilhar (o quadrado com a seta) e depois em "Adicionar à Tela de Início".';$('install').hidden=false}
+const ua=navigator.userAgent;
+const isIOS=/iphone|ipad|ipod/i.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isAndroid=/android/i.test(ua);
+function howTo(){
+  if(isIOS){
+    if(/CriOS|FxiOS|EdgiOS/.test(ua))return 'Para instalar: toque em Compartilhar (o quadrado com a seta, na barra de endereço) e depois em "Adicionar à Tela de Início".';
+    return 'Para instalar no iPhone: toque em Compartilhar (o quadrado com a seta, na barra de baixo) e depois em "Adicionar à Tela de Início".';
+  }
+  if(isAndroid){
+    if(/SamsungBrowser/.test(ua))return 'Para instalar: toque no menu (☰) e depois em "Adicionar página a" → "Tela inicial".';
+    if(/Firefox/.test(ua))return 'Para instalar: toque no menu (⋮) e depois em "Instalar" ou "Adicionar à tela inicial".';
+    return 'Para instalar: toque no menu (⋮) do navegador e depois em "Instalar app" ou "Adicionar à tela inicial".';
+  }
+  return 'Para instalar no computador: clique no ícone de instalar na barra de endereço do navegador. No celular, abra este endereço e use o menu do navegador.';
+}
+function showInstall(force){
+  if(standalone)return;
+  if(dismissed&&!force)return;
+  if(deferred){$('installTxt').textContent='Instale o leitor na tela inicial para abrir como um app, mesmo sem internet.';$('installBtn').hidden=false}
+  else{$('installTxt').textContent=howTo();$('installBtn').hidden=true}
+  $('install').hidden=false;
+  if(force)$('install').scrollIntoView({behavior:'smooth',block:'center'});
+}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;showInstall(false)});
+$('installBtn').onclick=async()=>{if(!deferred)return;deferred.prompt();const r=await deferred.userChoice.catch(()=>null);deferred=null;if(r&&r.outcome==='accepted')$('install').hidden=true;else showInstall(true)};
+$('installX').onclick=()=>{$('install').hidden=true;try{localStorage.setItem('qr-install-until',String(Date.now()+7*864e5))}catch(e){}};
+window.addEventListener('appinstalled',()=>{$('install').hidden=true;$('howInstall').hidden=true});
+// se o navegador não oferecer o botão automático, mostra as instruções do menu
+setTimeout(()=>showInstall(false),2500);
+if(standalone)$('howInstall').hidden=true;
+$('howInstall').onclick=()=>showInstall(true);
 // imagens recebidas pelo "Compartilhar" do Android
 const sp=new URLSearchParams(location.search);
 if(sp.has('shared')&&'caches' in window){(async()=>{
