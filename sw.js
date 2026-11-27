@@ -1,6 +1,6 @@
 /* Service worker do Leitor de QR: deixa o app funcionando offline
    e recebe imagens compartilhadas pelo Android (Web Share Target). */
-const VERSION = 'qr-v1.4';
+const VERSION = 'qr-v1.5';
 const JSQR = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
 const LOCAL = [
   './',
